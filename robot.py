@@ -27,23 +27,42 @@ DOWN_Z = 120   # PLACEHOLDER: height to grab/release a piece. The gripper and
                # suction cup are different lengths, so this needs checking
                # for whichever one is fitted.
 
-# Board squares, numbered like the UI:
+# ---- Board layout ----
+# Change these four numbers to move, resize or reshape the board.
+# 3x3 for tic-tac-toe, 6 rows x 7 cols for Connect 4, 8x8 for chess.
+ROWS = 3
+COLS = 3
+SPACING = 40   # mm between square centres
+FAR_X = 240    # x of the column furthest from the robot
+CENTRE_Y = 0   # y of the board's middle row
+
+# Squares numbered like the UI, row by row:
 #   0 | 1 | 2
 #   3 | 4 | 5
 #   6 | 7 | 8
-# Only x and y matter here; height is set by HOVER_Z or DOWN_Z.
-SQUARES = [
-    (175, 30), (145, 30), (115, 30),
-    (175, 0),  (145, 0),  (115, 0),
-    (175, -30), (145, -30), (115, -30),
-]
+# x is distance out from the robot, y is left/right.
+# Only x and y are stored; height is set by HOVER_Z or DOWN_Z.
+SQUARES = []
+for row in range(ROWS):
+    y = CENTRE_Y + ((ROWS - 1) / 2 - row) * SPACING
+    for col in range(COLS):
+        x = FAR_X - col * SPACING
+        SQUARES.append((x, y))
 
-# PLACEHOLDER staging spots, where pieces wait before being placed.
-# X moves first, so it can need up to 5 pieces; O needs at most 4.
-STAGING = {
-    1: [(200, 90), (170, 90), (140, 90), (110, 90), (80, 90)],   # X pieces
-    2: [(200, -90), (170, -90), (140, -90), (110, -90)],          # O pieces
-}
+# ---- Staging (PLACEHOLDER until calibrated) ----
+# A line of pieces down each side of the board, same spacing as the squares.
+# X moves first, so it needs the extra piece when the square count is odd.
+STAGING_Y = (ROWS - 1) / 2 * SPACING + SPACING  # one spacing beyond the board edge
+
+X_PIECES = (ROWS * COLS + 1) // 2
+O_PIECES = (ROWS * COLS) // 2
+
+STAGING = {1: [], 2: []}
+for side, player, count in [(1, 1, X_PIECES), (-1, 2, O_PIECES)]:
+    for i in range(count):
+        x = FAR_X - i * SPACING
+        y = CENTRE_Y + side * STAGING_Y
+        STAGING[player].append((x, y))
 
 TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
 
