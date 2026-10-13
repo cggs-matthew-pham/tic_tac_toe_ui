@@ -25,8 +25,8 @@ END_EFFECTOR = "suction"  # "suction" or "gripper"
 
 START_ANGLES = [25, 20, -120, 10, 0, -65]
 
-HOVER_Z = 210  # safe travel height, about 40 above DOWN_Z
-DOWN_Z = 170   # height where the cup just touches a piece (measure at a
+HOVER_Z = 190  # safe travel height, about 40 above DOWN_Z
+DOWN_Z = 175   # height where the cup just touches a piece (measure at a
                # NEAR square, then use SAG_PER_MM to fix the far ones)
 
 # The arm droops slightly at full reach, so far positions end up lower than
@@ -51,8 +51,8 @@ SQUARES = [
 # ---- Staging spots ----
 # Where blocks wait before being placed. X moves first, so it needs 5; O needs 4.
 STAGING = {
-    1: [(240, 70), (200, 70), (160, 70), (120, 70), (80, 70)],   # X blocks
-    2: [(240, -70), (200, -70), (160, -70), (120, -70)],         # O blocks
+    1: [(270, 70), (240, 70), (210, 70), (180, 70), (150, 70)],   # X blocks
+    2: [(270, -70), (240, -70), (210, -70), (180, -70)],         # O blocks
 }
 
 TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
