@@ -21,7 +21,8 @@ def find_spot(name):
     if name.isdigit():
         index = int(name)
         if index < len(SQUARES):
-            return f"square {index}", SQUARES[index]
+            x, y = SQUARES[index]
+            return f"square {index}", (x, y), DOWN_Z
         return None
 
     players = {"x": 1, "o": 2}
@@ -29,7 +30,9 @@ def find_spot(name):
         slots = STAGING[players[name[0]]]
         index = int(name[1:])
         if index < len(slots):
-            return f"{name[0].upper()} slot {index}", slots[index]
+            x, y, layer = slots[index]
+            down_z = DOWN_Z + layer * robot.BLOCK_HEIGHT
+            return f"{name[0].upper()} slot {index} (layer {layer})", (x, y), down_z
 
     return None
 
@@ -43,6 +46,7 @@ def test_go_to():
     print("Then: d = down, h = hover, q = back to menu")
 
     spot = None    # (x, y) the arm is currently over
+    down_z = DOWN_Z
     down = False
 
     while True:
@@ -58,7 +62,7 @@ def test_go_to():
                 if spot is None:
                     print("Choose a square or staging slot first.")
                     continue
-                height = DOWN_Z if command == "d" else HOVER_Z
+                height = down_z if command == "d" else HOVER_Z
                 robot.move_to(*spot, height, mode=1)  # straight up or down
                 down = command == "d"
                 print(f"At {spot}, z = {height}")
@@ -73,7 +77,7 @@ def test_go_to():
                 robot.move_to(*spot, HOVER_Z, mode=1)
                 down = False
 
-            label, spot = found
+            label, spot, down_z = found
             robot.move_to(*spot, HOVER_Z)
             print(f"Over {label} at {spot}, z = {HOVER_Z}")
 

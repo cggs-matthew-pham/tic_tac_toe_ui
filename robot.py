@@ -29,6 +29,10 @@ HOVER_Z = 190  # safe travel height; clears a 2-high stack of thin blocks
 DOWN_Z = 175   # height where the cup just touches a block sitting on the table
 BLOCK_HEIGHT = 5  # mm; a stacked block is grabbed this much higher
 
+# Safety: move_to refuses anything below this, so a wrong number can't
+# drive the cup into the board. Keep it a few mm under DOWN_Z.
+MIN_Z = DOWN_Z - 5
+
 # The arm droops slightly at full reach, so far positions end up lower than
 # asked. Beyond SAG_START_X, raise z by SAG_PER_MM for every mm further out.
 # Example: if x=240 sits 8 mm lower than x=160, use 8 / (240 - 160) = 0.1
@@ -104,6 +108,11 @@ def release():
 # ---- Movement: identical for both end effectors ----
 
 def move_to(x, y, z, mode=0):
+    if z < MIN_Z:
+        raise RuntimeError(f"Refusing to move to z={z}: below MIN_Z ({MIN_Z})")
+    if mode not in (0, 1):
+        raise RuntimeError(f"mode must be 0 or 1, got {mode}")
+
     z = z + max(0, x - SAG_START_X) * SAG_PER_MM  # droop correction
     target = [x, y, z] + TOOL_DOWN
     solution = mc.solve_inv_kinematics(target, mc.get_angles())
