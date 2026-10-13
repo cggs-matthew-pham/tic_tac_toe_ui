@@ -16,58 +16,69 @@ def ask(message):
     return input(message).strip().lower()
 
 
-def test_squares():
-    print("Square numbering:")
-    print("0 | 1 | 2")
-    print("--+---+--")
-    print("3 | 4 | 5")
-    print("--+---+--")
-    print("6 | 7 | 8")
-    print()
+def find_spot(name):
+    """Turn '4' into square 4, or 'x2' / 'o0' into a staging slot."""
+    if name.isdigit():
+        index = int(name)
+        if index < len(SQUARES):
+            return f"square {index}", SQUARES[index]
+        return None
 
-    for square in range(9):
-        if ask(f"Enter to hover over square {square}, q to stop: ") == "q":
+    players = {"x": 1, "o": 2}
+    if name[:1] in players and name[1:].isdigit():
+        slots = STAGING[players[name[0]]]
+        index = int(name[1:])
+        if index < len(slots):
+            return f"{name[0].upper()} slot {index}", slots[index]
+
+    return None
+
+
+def test_go_to():
+    print("Squares:")
+    print("  0 | 1 | 2")
+    print("  3 | 4 | 5")
+    print("  6 | 7 | 8")
+    print(f"Staging: x0-x{len(STAGING[1]) - 1}, o0-o{len(STAGING[2]) - 1}")
+    print("Then: d = down, h = hover, q = back to menu")
+
+    spot = None    # (x, y) the arm is currently over
+    down = False
+
+    while True:
+        command = ask("> ")
+
+        if command == "q":
+            if down:
+                robot.move_to(*spot, HOVER_Z, mode=1)
             return
 
-        x, y = SQUARES[square]
         try:
-            robot.move_to(x, y, HOVER_Z)
+            if command in ("d", "h"):
+                if spot is None:
+                    print("Choose a square or staging slot first.")
+                    continue
+                height = DOWN_Z if command == "d" else HOVER_Z
+                robot.move_to(*spot, height, mode=1)  # straight up or down
+                down = command == "d"
+                print(f"At {spot}, z = {height}")
+                continue
+
+            found = find_spot(command)
+            if found is None:
+                print("Unknown spot. Try 4, x2 or o0.")
+                continue
+
+            if down:  # always lift before moving sideways
+                robot.move_to(*spot, HOVER_Z, mode=1)
+                down = False
+
+            label, spot = found
+            robot.move_to(*spot, HOVER_Z)
+            print(f"Over {label} at {spot}, z = {HOVER_Z}")
+
         except RuntimeError as error:
             print(error)
-            return
-
-        if ask(f"Is square {square} correctly aligned? (y/n): ") != "y":
-            print(f"Fix SQUARES[{square}] in robot.py (currently {SQUARES[square]})")
-            return
-
-    print("All 9 squares checked.")
-
-
-def test_staging():
-    names = {1: "X", 2: "O"}
-
-    for player, spots in STAGING.items():
-        for slot, (x, y) in enumerate(spots):
-            label = f"{names[player]} slot {slot}"
-            if ask(f"Enter to check {label}, q to stop: ") == "q":
-                return
-
-            try:
-                robot.move_to(x, y, HOVER_Z)
-                robot.move_to(x, y, DOWN_Z, mode=1)  # down to grab height
-            except RuntimeError as error:
-                print(error)
-                return
-
-            answer = ask(f"Is the cup just touching the {label} piece? (y/n): ")
-            robot.move_to(x, y, HOVER_Z, mode=1)
-
-            if answer != "y":
-                print(f"Fix STAGING[{player}][{slot}] or DOWN_Z in robot.py")
-                print(f"Currently {(x, y)}, DOWN_Z = {DOWN_Z}")
-                return
-
-    print("All staging spots checked.")
 
 
 def test_end_effector():
@@ -79,14 +90,42 @@ def test_end_effector():
     print("Done.")
 
 
+def test_pick_and_place():
+    names = {"x": 1, "o": 2}
+
+    player = names.get(ask("Pick an X or an O block? (x/o): "))
+    if player is None:
+        print("Type x or o.")
+        return
+
+    slots = STAGING[player]
+    try:
+        slot = int(ask(f"Which staging slot? (0-{len(slots) - 1}): "))
+        square = int(ask(f"Which square to place it on? (0-{len(SQUARES) - 1}): "))
+        slots[slot], SQUARES[square]  # check both numbers exist
+    except (ValueError, IndexError):
+        print("That slot or square doesn't exist.")
+        return
+
+    try:
+        robot.pick_from(*slots[slot])
+        robot.drop_at(*SQUARES[square])
+    except RuntimeError as error:
+        print(error)
+        robot.release()  # don't keep holding a block after a failed move
+        return
+
+    print("Done. Did the block land in the middle of the square?")
+
+
 def main():
     print("Moving to safe start position...")
     robot.home()
 
     tests = {
-        "1": ("Squares (hover check)", test_squares),
-        "2": ("Staging spots (grab height check)", test_staging),
-        "3": ("Grab and release", test_end_effector),
+        "1": ("Go to a square or staging spot (hover/down)", test_go_to),
+        "2": ("Grab and release", test_end_effector),
+        "3": ("Pick and place (staging slot to square)", test_pick_and_place),
     }
 
     while True:

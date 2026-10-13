@@ -25,8 +25,8 @@ END_EFFECTOR = "suction"  # "suction" or "gripper"
 
 START_ANGLES = [25, 20, -120, 10, 0, -65]
 
-HOVER_Z = 190  # safe travel height, about 40 above DOWN_Z
-DOWN_Z = 175   # height where the cup just touches a piece (measure at a
+HOVER_Z = 210  # safe travel height, about 40 above DOWN_Z
+DOWN_Z = 170   # height where the cup just touches a piece (measure at a
                # NEAR square, then use SAG_PER_MM to fix the far ones)
 
 # The arm droops slightly at full reach, so far positions end up lower than
@@ -35,42 +35,25 @@ DOWN_Z = 175   # height where the cup just touches a piece (measure at a
 SAG_START_X = 160
 SAG_PER_MM = 0.0  # start at 0, measure, then set
 
-# ---- Board layout ----
-# Change these four numbers to move, resize or reshape the board.
-# 3x3 for tic-tac-toe, 6 rows x 7 cols for Connect 4, 8x8 for chess.
-ROWS = 3
-COLS = 3
-SPACING = 40   # mm between square centres
-FAR_X = 240    # x of the column furthest from the robot
-CENTRE_Y = 0   # y of the board's middle row
-
-# Squares numbered like the UI, row by row:
+# ---- Board squares ----
+# Numbered like the UI:
 #   0 | 1 | 2
 #   3 | 4 | 5
 #   6 | 7 | 8
-# x is distance out from the robot, y is left/right.
-# Only x and y are stored; height is set by HOVER_Z or DOWN_Z.
-SQUARES = []
-for row in range(ROWS):
-    y = CENTRE_Y + ((ROWS - 1) / 2 - row) * SPACING
-    for col in range(COLS):
-        x = FAR_X - col * SPACING
-        SQUARES.append((x, y))
+# (x, y) in mm. x is distance out from the robot, y is left/right.
+# Height is set by HOVER_Z or DOWN_Z.
+SQUARES = [
+    (240, 40), (200, 40), (160, 40),
+    (240, 0),  (200, 0),  (160, 0),
+    (240, -40), (200, -40), (160, -40),
+]
 
-# ---- Staging (PLACEHOLDER until calibrated) ----
-# A line of pieces down each side of the board, same spacing as the squares.
-# X moves first, so it needs the extra piece when the square count is odd.
-STAGING_Y = (ROWS - 1) / 2 * SPACING + SPACING  # one spacing beyond the board edge
-
-X_PIECES = (ROWS * COLS + 1) // 2
-O_PIECES = (ROWS * COLS) // 2
-
-STAGING = {1: [], 2: []}
-for side, player, count in [(1, 1, X_PIECES), (-1, 2, O_PIECES)]:
-    for i in range(count):
-        x = FAR_X - i * SPACING
-        y = CENTRE_Y + side * STAGING_Y
-        STAGING[player].append((x, y))
+# ---- Staging spots ----
+# Where blocks wait before being placed. X moves first, so it needs 5; O needs 4.
+STAGING = {
+    1: [(240, 70), (200, 70), (160, 70), (120, 70), (80, 70)],   # X blocks
+    2: [(240, -70), (200, -70), (160, -70), (120, -70)],         # O blocks
+}
 
 TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
 
