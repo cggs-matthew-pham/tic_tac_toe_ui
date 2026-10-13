@@ -8,14 +8,15 @@ Run on the Pi, no window needed (fine over SSH):
     python3 test_mycobot_squares.py
 """
 
-from robot import Robot, SQUARES, STAGING, HOVER_Z, DOWN_Z
+import robot
+from robot import SQUARES, STAGING, HOVER_Z, DOWN_Z
 
 
 def ask(message):
     return input(message).strip().lower()
 
 
-def test_squares(robot):
+def test_squares():
     print("Square numbering:")
     print("0 | 1 | 2")
     print("--+---+--")
@@ -42,7 +43,7 @@ def test_squares(robot):
     print("All 9 squares checked.")
 
 
-def test_staging(robot):
+def test_staging():
     names = {1: "X", 2: "O"}
 
     for player, spots in STAGING.items():
@@ -69,8 +70,8 @@ def test_staging(robot):
     print("All staging spots checked.")
 
 
-def test_end_effector(robot):
-    print(f"Testing the {robot.end_effector}. Hold a piece against it.")
+def test_end_effector():
+    print(f"Testing the {robot.END_EFFECTOR}. Hold a piece against it.")
     ask("Enter to grab: ")
     robot.grab()
     ask("Did it grab? Enter to release: ")
@@ -79,7 +80,6 @@ def test_end_effector(robot):
 
 
 def main():
-    robot = Robot()  # same end effector default as the game
     print("Moving to safe start position...")
     robot.home()
 
@@ -99,7 +99,7 @@ def main():
             robot.home()
             return
         if choice in tests:
-            tests[choice][1](robot)
+            tests[choice][1]()
 
 
 if __name__ == "__main__":

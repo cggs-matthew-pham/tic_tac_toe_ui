@@ -1,14 +1,10 @@
-from game import TicTacToeGame
-from ui import TicTacToeUI
-from robot import Robot
-
-
-game = TicTacToeGame()
-robot = Robot(end_effector="suction")  # or "gripper"
+import game
+import ui
+import robot
 
 
 def player_name(player):
-    if player == TicTacToeGame.X:
+    if player == game.X:
         return "X"
     return "O"
 
@@ -24,7 +20,7 @@ def square_clicked(square):
 
     winner = game.check_winner()
 
-    if winner != TicTacToeGame.EMPTY:
+    if winner != game.EMPTY:
         ui.set_status(f"{player_name(winner)} wins!")
         return
 
@@ -43,8 +39,7 @@ def reset_game():
     ui.set_status("X to move")
 
 
-ui = TicTacToeUI(on_square=square_clicked)
-ui.on_reset = reset_game
+ui.build(on_square=square_clicked, on_reset=reset_game)
 
 reset_game()
 ui.run()
