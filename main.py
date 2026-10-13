@@ -1,8 +1,10 @@
-from tic_tac_toe_game import TicTacToeGame
-from tic_tac_toe_ui import TicTacToeUI
+from game import TicTacToeGame
+from ui import TicTacToeUI
+from robot import Robot
 
 
 game = TicTacToeGame()
+robot = Robot(end_effector="suction")  # or "gripper"
 
 
 def player_name(player):
@@ -16,9 +18,7 @@ def square_clicked(square):
         ui.set_status("That square is already occupied.")
         return
 
-    # Later, this is the obvious robot-arm integration point:
-    #
-    # robot.place_piece(square, game.current_player)
+    robot.place_piece(square, game.current_player)
 
     ui.update_board(game.board)
 
@@ -38,6 +38,7 @@ def square_clicked(square):
 
 def reset_game():
     game.reset()
+    robot.reset()
     ui.update_board(game.board)
     ui.set_status("X to move")
 
