@@ -26,7 +26,7 @@ END_EFFECTOR = "suction"  # "suction" or "gripper"
 START_ANGLES = [25, 20, -120, 10, 0, -65]
 
 HOVER_Z = 190  # safe travel height, about 40 above DOWN_Z
-DOWN_Z = 170   # height where the cup just touches a piece (measure at a
+DOWN_Z = 175   # height where the cup just touches a piece (measure at a
                # NEAR square, then use SAG_PER_MM to fix the far ones)
 
 # The arm droops slightly at full reach, so far positions end up lower than
