@@ -25,9 +25,9 @@ END_EFFECTOR = "suction"  # "suction" or "gripper"
 
 START_ANGLES = [25, 20, -120, 10, 0, -65]
 
-HOVER_Z = 190  # safe travel height, about 40 above DOWN_Z
-DOWN_Z = 175   # height where the cup just touches a piece (measure at a
-               # NEAR square, then use SAG_PER_MM to fix the far ones)
+HOVER_Z = 190  # safe travel height; clears a 2-high stack of thin blocks
+DOWN_Z = 175   # height where the cup just touches a block sitting on the table
+BLOCK_HEIGHT = 5  # mm; a stacked block is grabbed this much higher
 
 # The arm droops slightly at full reach, so far positions end up lower than
 # asked. Beyond SAG_START_X, raise z by SAG_PER_MM for every mm further out.
@@ -49,10 +49,15 @@ SQUARES = [
 ]
 
 # ---- Staging spots ----
-# Where blocks wait before being placed. X moves first, so it needs 5; O needs 4.
+# (x, y, layer). Layer 0 sits on the table, layer 1 is stacked on top of it.
+# Blocks are taken in list order, so the top block of each stack comes first.
+# X: stacks of 2, 2 and 1 (5 blocks). O: stacks of 2 and 2 (4 blocks).
 STAGING = {
-    1: [(270, 70), (240, 70), (210, 70), (180, 70), (150, 70)],   # X blocks
-    2: [(270, -70), (240, -70), (210, -70), (180, -70)],         # O blocks
+    1: [(240, 70, 1), (240, 70, 0),     # X blocks
+        (210, 70, 1), (210, 70, 0),
+        (180, 70, 0)],
+    2: [(240, -70, 1), (240, -70, 0),   # O blocks
+        (210, -70, 1), (210, -70, 0)],
 }
 
 TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
@@ -115,9 +120,10 @@ def home():
     time.sleep(3)
 
 
-def pick_from(x, y):
+def pick_from(x, y, layer=0):
+    grab_z = DOWN_Z + layer * BLOCK_HEIGHT  # higher for a stacked block
     move_to(x, y, HOVER_Z)
-    move_to(x, y, DOWN_Z, mode=1)  # mode 1: straight line down
+    move_to(x, y, grab_z, mode=1)  # mode 1: straight line down
     grab()
     move_to(x, y, HOVER_Z, mode=1)
 
