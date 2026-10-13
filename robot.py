@@ -22,8 +22,8 @@ SPEED = 40
 
 START_ANGLES = [25, 20, -120, 10, 0, -65]
 
-HOVER_Z = 170  # safe travel height, same as the square test
-DOWN_Z = 120   # PLACEHOLDER: height to grab/release a piece. The gripper and
+HOVER_Z = 220  # safe travel height, same as the square test
+DOWN_Z = 180   # PLACEHOLDER: height to grab/release a piece. The gripper and
                # suction cup are different lengths, so this needs checking
                # for whichever one is fitted.
 
