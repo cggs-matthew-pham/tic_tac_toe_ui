@@ -105,9 +105,54 @@ def release():
     time.sleep(1)
 
 
+# ---- Talking to the arm ----
+# Questions sent to the arm over the serial cable sometimes get no answer
+# (None, -1 or []), especially while it is still moving. So: wait for each
+# move to finish, remember what we already know, and retry only as a backup.
+
+last_target = None   # where we last sent the arm
+last_angles = None   # last good joint-angle reading
+
+
+def wait_until_stopped(timeout=10):
+    time.sleep(0.3)  # give the move time to start
+    start = time.time()
+    while time.time() - start < timeout:
+        if mc.is_moving() == 0:  # 1 = moving, 0 = stopped, -1 = no answer
+            return
+        time.sleep(0.1)
+    print("Warning: arm didn't report stopping; carrying on.")
+
+
+def read_angles():
+    global last_angles
+    for _ in range(3):
+        angles = mc.get_angles()
+        if isinstance(angles, list) and len(angles) == 6:
+            last_angles = angles
+            return angles
+        time.sleep(0.2)
+    return last_angles  # fall back to the last good reading
+
+
+def can_reach(target):
+    angles = read_angles()
+    if angles is None:
+        raise RuntimeError("Couldn't read the arm's joint angles. Check the connection.")
+
+    for _ in range(3):
+        solution = mc.solve_inv_kinematics(target, angles)
+        if isinstance(solution, list) and len(solution) == 6:
+            return True
+        time.sleep(0.2)
+    return False
+
+
 # ---- Movement: identical for both end effectors ----
 
 def move_to(x, y, z, mode=0):
+    global last_target
+
     if z < MIN_Z:
         raise RuntimeError(f"Refusing to move to z={z}: below MIN_Z ({MIN_Z})")
     if mode not in (0, 1):
@@ -115,18 +160,24 @@ def move_to(x, y, z, mode=0):
 
     z = z + max(0, x - SAG_START_X) * SAG_PER_MM  # droop correction
     target = [x, y, z] + TOOL_DOWN
-    solution = mc.solve_inv_kinematics(target, mc.get_angles())
 
-    if not solution or len(solution) != 6:
+    if target == last_target:
+        return  # already there
+
+    if not can_reach(target):
         raise RuntimeError(f"Can't reach {target}")
 
     mc.send_coords(target, SPEED, mode)
-    time.sleep(2)
+    wait_until_stopped()
+    last_target = target
 
 
 def home():
+    global last_target, last_angles
     mc.send_angles(START_ANGLES, SPEED)
-    time.sleep(3)
+    wait_until_stopped()
+    last_target = None
+    last_angles = list(START_ANGLES)  # a known-good reading to start from
 
 
 def pick_from(x, y, layer=0):
