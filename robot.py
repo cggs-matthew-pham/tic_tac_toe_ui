@@ -53,15 +53,17 @@ SQUARES = [
 ]
 
 # ---- Staging spots ----
-# (x, y, layer). Layer 0 sits on the table, layer 1 is stacked on top of it.
-# Blocks are taken in list order, so the top block of each stack comes first.
-# X: stacks of 2, 2 and 1 (5 blocks). O: stacks of 2 and 2 (4 blocks).
+# One (x, y) per stack of blocks, nearest-to-use first.
 STAGING = {
-    1: [(240, 70, 1), (240, 70, 0),     # X blocks
-        (210, 70, 1), (210, 70, 0),
-        (180, 70, 0)],
-    2: [(240, -70, 1), (240, -70, 0),   # O blocks
-        (210, -70, 1), (210, -70, 0)],
+    1: [(240, 70), (210, 70), (180, 70)],   # X stacks
+    2: [(240, -70), (210, -70)],            # O stacks
+}
+
+# How many blocks start in each stack above. X: 2 + 2 + 1 = 5, O: 2 + 2 = 4.
+# This is the only place stacking is described.
+STACK_SIZES = {
+    1: [2, 2, 1],
+    2: [2, 2],
 }
 
 TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
@@ -81,7 +83,8 @@ if END_EFFECTOR == "suction":
     GPIO.setup(20, GPIO.OUT)  # pump
     GPIO.setup(21, GPIO.OUT)  # release valve
 
-pieces_used = {1: 0, 2: 0}  # staging pieces taken so far, per player
+# Blocks left in each stack; refilled by reset().
+blocks_left = {player: list(sizes) for player, sizes in STACK_SIZES.items()}
 
 
 # ---- End effector: the only part that differs ----
@@ -198,18 +201,22 @@ def drop_at(x, y):
 # ---- Game-level actions ----
 
 def place_piece(square, player):
-    slot = pieces_used[player]
-    if slot >= len(STAGING[player]):
-        raise RuntimeError(f"No staged pieces left for player {player}")
+    stacks = blocks_left[player]
 
-    pick_from(*STAGING[player][slot])
-    drop_at(*SQUARES[square])
-    pieces_used[player] += 1
+    for stack, count in enumerate(stacks):
+        if count > 0:
+            layer = count - 1  # top block of this stack (0 = on the table)
+            pick_from(*STAGING[player][stack], layer)
+            drop_at(*SQUARES[square])
+            stacks[stack] -= 1
+            return
+
+    raise RuntimeError(f"No staged blocks left for player {player}")
 
 
 def reset():
     # Pieces go back to staging by hand, so just restart the count.
-    pieces_used[1] = 0
-    pieces_used[2] = 0
+    for player, sizes in STACK_SIZES.items():
+        blocks_left[player] = list(sizes)
     release()
     home()

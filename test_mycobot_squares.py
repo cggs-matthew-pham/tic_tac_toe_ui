@@ -17,22 +17,19 @@ def ask(message):
 
 
 def find_spot(name):
-    """Turn '4' into square 4, or 'x2' / 'o0' into a staging slot."""
+    """Turn '4' into square 4, or 'x1' / 'o0' into a staging stack."""
     if name.isdigit():
         index = int(name)
         if index < len(SQUARES):
-            x, y = SQUARES[index]
-            return f"square {index}", (x, y), DOWN_Z
+            return f"square {index}", SQUARES[index]
         return None
 
     players = {"x": 1, "o": 2}
     if name[:1] in players and name[1:].isdigit():
-        slots = STAGING[players[name[0]]]
+        stacks = STAGING[players[name[0]]]
         index = int(name[1:])
-        if index < len(slots):
-            x, y, layer = slots[index]
-            down_z = DOWN_Z + layer * robot.BLOCK_HEIGHT
-            return f"{name[0].upper()} slot {index} (layer {layer})", (x, y), down_z
+        if index < len(stacks):
+            return f"{name[0].upper()} stack {index}", stacks[index]
 
     return None
 
@@ -43,10 +40,16 @@ def test_go_to():
     print("  3 | 4 | 5")
     print("  6 | 7 | 8")
     print(f"Staging: x0-x{len(STAGING[1]) - 1}, o0-o{len(STAGING[2]) - 1}")
-    print("Then: d = down, h = hover, q = back to menu")
+    print("Then: d = down to the table, d2 = one block up, h = hover,")
+    print("      q = back to menu")
+
+    heights = {
+        "d": DOWN_Z,
+        "d2": DOWN_Z + robot.BLOCK_HEIGHT,
+        "h": HOVER_Z,
+    }
 
     spot = None    # (x, y) the arm is currently over
-    down_z = DOWN_Z
     down = False
 
     while True:
@@ -58,26 +61,26 @@ def test_go_to():
             return
 
         try:
-            if command in ("d", "h"):
+            if command in heights:
                 if spot is None:
-                    print("Choose a square or staging slot first.")
+                    print("Choose a square or staging stack first.")
                     continue
-                height = down_z if command == "d" else HOVER_Z
+                height = heights[command]
                 robot.move_to(*spot, height, mode=1)  # straight up or down
-                down = command == "d"
+                down = command != "h"
                 print(f"At {spot}, z = {height}")
                 continue
 
             found = find_spot(command)
             if found is None:
-                print("Unknown spot. Try 4, x2 or o0.")
+                print("Unknown spot. Try 4, x1 or o0.")
                 continue
 
             if down:  # always lift before moving sideways
                 robot.move_to(*spot, HOVER_Z, mode=1)
                 down = False
 
-            label, spot, down_z = found
+            label, spot = found
             robot.move_to(*spot, HOVER_Z)
             print(f"Over {label} at {spot}, z = {HOVER_Z}")
 
@@ -102,17 +105,20 @@ def test_pick_and_place():
         print("Type x or o.")
         return
 
-    slots = STAGING[player]
+    stacks = STAGING[player]
     try:
-        slot = int(ask(f"Which staging slot? (0-{len(slots) - 1}): "))
+        stack = int(ask(f"Which staging stack? (0-{len(stacks) - 1}): "))
+        layer = int(ask("Which block? (1 = bottom, 2 = top of a stack): ")) - 1
         square = int(ask(f"Which square to place it on? (0-{len(SQUARES) - 1}): "))
-        slots[slot], SQUARES[square]  # check both numbers exist
+        stacks[stack], SQUARES[square]  # check both numbers exist
+        if layer not in (0, 1):
+            raise ValueError
     except (ValueError, IndexError):
-        print("That slot or square doesn't exist.")
+        print("That stack, block or square doesn't exist.")
         return
 
     try:
-        robot.pick_from(*slots[slot])
+        robot.pick_from(*stacks[stack], layer)
         robot.drop_at(*SQUARES[square])
     except RuntimeError as error:
         print(error)
