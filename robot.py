@@ -29,6 +29,11 @@ SPEED = 40
 
 END_EFFECTOR = "suction"  # "suction" or "gripper"
 
+# False = the arm still moves through every pick and place, but the pump
+# never switches on (quiet, for calibrating). Toggle while testing with
+# 'pump' in test_mycobot_squares.py. Set True to actually pick up blocks.
+PUMP_ENABLED = False
+
 START_ANGLES = [25, 20, -120, 10, 0, -65]
 
 HOVER_Z = 190  # safe travel height; clears a 2-high stack of thin blocks
@@ -135,8 +140,10 @@ if END_EFFECTOR == "suction":
     import RPi.GPIO as GPIO
 
     GPIO.setmode(GPIO.BCM)
-    GPIO.setup(20, GPIO.OUT)  # pump
-    GPIO.setup(21, GPIO.OUT)  # release valve
+    # initial=HIGH: an output pin starts LOW otherwise, which here means
+    # pump running from the moment this file is imported.
+    GPIO.setup(20, GPIO.OUT, initial=GPIO.HIGH)  # pump (LOW = on)
+    GPIO.setup(21, GPIO.OUT, initial=GPIO.HIGH)  # release valve (LOW = open)
 
 # Blocks left in each stack; refilled by reset().
 blocks_left = {player: list(sizes) for player, sizes in STACK_SIZES.items()}
@@ -147,8 +154,10 @@ blocks_left = {player: list(sizes) for player, sizes in STACK_SIZES.items()}
 def grab():
     if END_EFFECTOR == "gripper":
         mc.set_gripper_state(1, 50)  # 1 = close
-    else:
+    elif PUMP_ENABLED:
         GPIO.output(20, 0)           # pump on
+    else:
+        print("(pump disabled: skipping grab)")
     time.sleep(1)
 
 
@@ -161,6 +170,14 @@ def release():
         time.sleep(0.5)
         GPIO.output(21, 1)
     time.sleep(1)
+
+
+def set_pump_enabled(on):
+    """Allow or block the pump. Turning it off also stops it if running."""
+    global PUMP_ENABLED
+    PUMP_ENABLED = on
+    if END_EFFECTOR == "suction" and not on:
+        GPIO.output(20, 1)  # pump off
 
 
 # ---- Talking to the arm ----

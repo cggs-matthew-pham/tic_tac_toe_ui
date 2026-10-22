@@ -73,6 +73,22 @@ def show_position(x, y, z):
         print("  Angles:   " + "  ".join(f"J{i + 1}={a:.1f}" for i, a in enumerate(angles)))
 
 
+def pump_command(command):
+    """Handle 'pump', 'pump on', 'pump off'. Returns True if it was one."""
+    if command not in ("pump", "pump on", "pump off"):
+        return False
+    if robot.END_EFFECTOR != "suction":
+        print("  No pump fitted (END_EFFECTOR is the gripper).")
+        return True
+    if command == "pump":
+        on = not robot.PUMP_ENABLED
+    else:
+        on = command == "pump on"
+    robot.set_pump_enabled(on)
+    print(f"  Pump {'ENABLED: grab will switch it on' if on else 'disabled: moves only, no suction'}.")
+    return True
+
+
 MAX_NUDGE = 10  # mm; stops a typo like x+40 swinging the arm across the board
 NUDGE = re.compile(r"^([xyz])([+-])(\d+(?:\.\d+)?)?$")
 
@@ -87,6 +103,7 @@ def test_go_to():
     print("  d = down to the table, d2 = one block up, h = hover")
     print("  x+ x- y+ y- z+ z- = nudge 1 mm; add mm for more, up to 10 (x+4, z-0.5)")
     print("  teach = go limp, you hold the cup on the spot, Enter to read it")
+    print("  pump / pump on / pump off = allow the suction pump (off by default)")
     print("  w = show where the arm is, save = keep this spot, q = back to menu")
     print("Save at d (cup just touching the table) to record height too;")
     print("save at h records only x and y.")
@@ -102,6 +119,9 @@ def test_go_to():
             if level in ("d", "d2"):
                 robot.move_to(x, y, HOVER_Z, mode=1)
             return
+
+        if pump_command(command):
+            continue
 
         try:
             if command in ("d", "d2", "h"):
@@ -213,6 +233,9 @@ def test_go_to():
 
 
 def test_end_effector():
+    if robot.END_EFFECTOR == "suction" and not robot.PUMP_ENABLED:
+        print("The pump is disabled. Turn it on from the menu (p) first.")
+        return
     print(f"Testing the {robot.END_EFFECTOR}. Hold a piece against it.")
     ask("Enter to grab: ")
     robot.grab()
@@ -266,11 +289,18 @@ def main():
         print()
         for key, (name, _) in tests.items():
             print(f"{key}. {name}")
+        if robot.END_EFFECTOR == "suction":
+            state = "ON" if robot.PUMP_ENABLED else "off"
+            print(f"p. Toggle suction pump (currently {state})")
         choice = ask("Choose a test, or q to quit: ")
 
         if choice == "q":
+            robot.set_pump_enabled(False)
             robot.home()
             return
+        if choice == "p":
+            pump_command("pump")
+            continue
         if choice in tests:
             tests[choice][1]()
 
