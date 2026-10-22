@@ -1,2 +1,4 @@
 __pycache__
 token.txt
+hardware/stl/
+*.stl
