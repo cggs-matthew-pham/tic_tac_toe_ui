@@ -12,7 +12,7 @@ import re
 import time
 
 import robot
-from robot import SQUARES, STAGING, SQUARE_Z, STAGING_Z, HOVER_Z, BLOCK_HEIGHT
+from robot import SQUARES, STAGING, SQUARE_Z, STAGING_Z, HOVER_CLEARANCE, BLOCK_HEIGHT
 
 
 def ask(message):
@@ -36,7 +36,7 @@ def find_spot(name):
         player = players[name[0]]
         index = int(name[1:])
         if index < len(STAGING[player]):
-            return f"{name[0].upper()} stack {index}", ("staging", player, index)
+            return f"{name[0].upper()} spot {index}", ("staging", player, index)
 
     return None
 
@@ -59,6 +59,11 @@ def set_spot(key, x, y, table_z):
         _, player, index = key
         STAGING[player][index] = (x, y)
         STAGING_Z[player][index] = table_z
+
+
+def lift_height(key, z):
+    """Hover height from here: clearance above the spot's table or the cup, whichever is higher."""
+    return max(z, get_spot(key)[2]) + HOVER_CLEARANCE
 
 
 def show_position(x, y, z):
@@ -100,7 +105,7 @@ def test_go_to():
     print("  6 | 7 | 8")
     print(f"Staging: x0-x{len(STAGING[1]) - 1}, o0-o{len(STAGING[2]) - 1}")
     print("Then:")
-    print("  d = down to the table, d2 = one block up, h = hover")
+    print(f"  d = down to the block, d2 = one block up, h = hover ({HOVER_CLEARANCE} mm above)")
     print("  x+ x- y+ y- z+ z- = nudge 1 mm; add mm for more, up to 10 (x+4, z-0.5)")
     print("  teach = go limp, you hold the cup on the spot, Enter to read it")
     print("  pump / pump on / pump off = allow the suction pump (off by default)")
@@ -120,7 +125,7 @@ def test_go_to():
 
         if command == "q":
             if level in ("d", "d2"):
-                robot.move_to(x, y, HOVER_Z, mode=1)
+                robot.move_to(x, y, lift_height(key, z), mode=1)
             return
 
         if pump_command(command):
@@ -132,7 +137,13 @@ def test_go_to():
                     print("Choose a square or staging spot first.")
                     continue
                 table_z = get_spot(key)[2]
-                z = {"d": table_z, "d2": table_z + BLOCK_HEIGHT, "h": HOVER_Z}[command]
+                if command == "h":
+                    if level == "h":
+                        print("  Already at hover. Use z+ to go higher.")
+                        continue
+                    z = lift_height(key, z)
+                else:
+                    z = {"d": table_z, "d2": table_z + BLOCK_HEIGHT}[command]
                 robot.move_to(x, y, z, mode=1)  # straight up or down
                 level = command
                 show_position(x, y, z)
@@ -216,8 +227,8 @@ def test_go_to():
                     if layer == 0:
                         set_spot(key, x, y, z)  # nudging restarts from here
                     # Straight up from here, and record that as the hover pose.
-                    robot.move_to(x, y, HOVER_Z, mode=1)
-                    z = HOVER_Z
+                    z = z + HOVER_CLEARANCE
+                    robot.move_to(x, y, z, mode=1)
                     level = "h"
 
                 angles = robot.read_angles(fallback=False)
@@ -244,7 +255,7 @@ def test_go_to():
                           f"({'d' if layer == 0 else 'd2'}, nudge, save).")
                     continue
                 if level in ("d", "d2"):
-                    robot.move_to(x, y, HOVER_Z, mode=1)
+                    robot.move_to(x, y, lift_height(key, z), mode=1)
                 hover, down = angles
                 robot.move_angles(hover)
                 robot.move_angles(down)
@@ -268,11 +279,11 @@ def test_go_to():
                 continue
 
             if level in ("d", "d2"):  # always lift before moving sideways
-                robot.move_to(x, y, HOVER_Z, mode=1)
+                robot.move_to(x, y, lift_height(key, z), mode=1)
 
             label, key = found
-            x, y, _ = get_spot(key)
-            z = HOVER_Z
+            x, y, table_z = get_spot(key)
+            z = table_z + HOVER_CLEARANCE
             level = "h"
             robot.move_to(x, y, z)
             print(f"Over {label}")

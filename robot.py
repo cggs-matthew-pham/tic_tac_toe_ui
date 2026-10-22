@@ -44,9 +44,14 @@ PUMP_ENABLED = False
 
 START_ANGLES = [25, 20, -120, 10, 0, -65]
 
-HOVER_Z = 190  # safe travel height above the table
-DOWN_Z = 175   # starting guess for where the cup touches a block on the table
+DOWN_Z = 175   # starting guess for where the cup touches a block on the table;
+               # set it near your real value so uncalibrated spots start close
 BLOCK_HEIGHT = 5  # mm; a stacked block sits this much higher
+
+# Hover = this far above a spot's table position (where the cup touches the
+# block). Relative, so it follows your board's real height. Raise it if the
+# arm brushes blocks when travelling between spots.
+HOVER_CLEARANCE = 30  # mm
 
 # Safety: move_to refuses anything below this, so a wrong number can't
 # drive the cup into the board. Low enough to leave room for nudging
