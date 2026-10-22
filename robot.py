@@ -13,6 +13,12 @@ CALIBRATE BEFORE USE: STAGING positions and DOWN_Z below are placeholders.
 Check them with test_mycobot_squares.py, which can nudge the arm into the
 right spot and save it to calibration.json. If that file exists it
 overrides the defaults below, per square and per staging stack.
+
+Saved spots also store the arm's joint angles (hover and down). The game
+replays those angles instead of sending coordinates: the arm's own
+coordinate-to-angle maths is approximate and depends on its starting pose,
+so angles land in the same place every time. Spots without saved angles
+fall back to coordinates and print a warning.
 """
 
 import json
@@ -95,6 +101,19 @@ TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
 
 PLAYER_LETTER = {1: "x", 2: "o"}
 
+# Joint angles per spot, keyed by the same names the test script uses:
+# "0".."8" for squares, "x0", "o1" etc. for staging stacks.
+#   {"4": {"hover": [6 angles], "down": [[6 angles] for layer 0, layer 1...]}}
+ANGLES = {}
+
+
+def spot_name(kind, *index):
+    """("square", 4) -> "4", ("staging", 1, 0) -> "x0"."""
+    if kind == "square":
+        return str(index[0])
+    player, stack = index
+    return f"{PLAYER_LETTER[player]}{stack}"
+
 
 def load_calibration():
     if not os.path.exists(CALIBRATION_FILE):
@@ -112,6 +131,8 @@ def load_calibration():
         STAGING[player][stack] = (x, y)
         STAGING_Z[player][stack] = z
 
+    ANGLES.update(data.get("angles", {}))
+
 
 def save_calibration():
     data = {
@@ -121,6 +142,7 @@ def save_calibration():
             for player in STAGING
             for i in range(len(STAGING[player]))
         },
+        "angles": ANGLES,
     }
     with open(CALIBRATION_FILE, "w") as f:
         json.dump(data, f, indent=2)
@@ -199,7 +221,8 @@ def wait_until_stopped(timeout=10):
     print("Warning: arm didn't report stopping; carrying on.")
 
 
-def read_angles():
+def read_angles(fallback=True):
+    """Joint angles now. With fallback=False, None rather than a stale reading."""
     global last_angles
     for _ in range(3):
         angles = mc.get_angles()
@@ -207,7 +230,9 @@ def read_angles():
             last_angles = angles
             return angles
         time.sleep(0.2)
-    return last_angles  # fall back to the last good reading
+    if fallback:
+        return last_angles  # fall back to the last good reading
+    return None
 
 
 def read_coords():
@@ -265,6 +290,15 @@ def home():
     last_angles = list(START_ANGLES)  # a known-good reading to start from
 
 
+def move_angles(angles):
+    """Replay saved joint angles: no coordinate maths, so it repeats exactly."""
+    global last_target, last_angles
+    mc.send_angles(angles, SPEED)
+    wait_until_stopped()
+    last_target = None  # next move_to must not assume where we are
+    last_angles = list(angles)
+
+
 def pick_from(x, y, layer=0, table_z=DOWN_Z):
     grab_z = table_z + layer * BLOCK_HEIGHT  # higher for a stacked block
     move_to(x, y, HOVER_Z)
@@ -280,6 +314,53 @@ def drop_at(x, y, table_z=DOWN_Z):
     move_to(x, y, HOVER_Z, mode=1)
 
 
+def saved_angles(name, layer=0):
+    """(hover, down) angles for a spot and layer, or None if not saved."""
+    spot = ANGLES.get(name, {})
+    downs = spot.get("down", [])
+    if spot.get("hover") and layer < len(downs) and downs[layer]:
+        return spot["hover"], downs[layer]
+    return None
+
+
+def spot_coords(name):
+    """(x, y, table_z) for "4" or "x0"."""
+    if name.isdigit():
+        i = int(name)
+        return (*SQUARES[i], SQUARE_Z[i])
+    player = {"x": 1, "o": 2}[name[0]]
+    i = int(name[1:])
+    return (*STAGING[player][i], STAGING_Z[player][i])
+
+
+def pick_from_spot(name, layer=0):
+    angles = saved_angles(name, layer)
+    if angles:
+        hover, down = angles
+        move_angles(hover)
+        move_angles(down)
+        grab()
+        move_angles(hover)
+    else:
+        print(f"Warning: no saved angles for {name} layer {layer}; using coordinates.")
+        x, y, table_z = spot_coords(name)
+        pick_from(x, y, layer, table_z)
+
+
+def drop_at_spot(name):
+    angles = saved_angles(name)
+    if angles:
+        hover, down = angles
+        move_angles(hover)
+        move_angles(down)
+        release()
+        move_angles(hover)
+    else:
+        print(f"Warning: no saved angles for square {name}; using coordinates.")
+        x, y, table_z = spot_coords(name)
+        drop_at(x, y, table_z)
+
+
 # ---- Game-level actions ----
 
 def place_piece(square, player):
@@ -288,8 +369,8 @@ def place_piece(square, player):
     for stack, count in enumerate(stacks):
         if count > 0:
             layer = count - 1  # top block of this stack (0 = on the table)
-            pick_from(*STAGING[player][stack], layer, STAGING_Z[player][stack])
-            drop_at(*SQUARES[square], SQUARE_Z[square])
+            pick_from_spot(spot_name("staging", player, stack), layer)
+            drop_at_spot(spot_name("square", square))
             stacks[stack] -= 1
             return
 

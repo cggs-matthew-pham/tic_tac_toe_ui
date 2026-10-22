@@ -105,8 +105,11 @@ def test_go_to():
     print("  teach = go limp, you hold the cup on the spot, Enter to read it")
     print("  pump / pump on / pump off = allow the suction pump (off by default)")
     print("  w = show where the arm is, save = keep this spot, q = back to menu")
-    print("Save at d (cup just touching the table) to record height too;")
-    print("save at h records only x and y.")
+    print("  check / check2 = replay the saved angles (table / one block up),")
+    print("                   exactly as the game moves - use it to test repeatability")
+    print("Save at d (cup just touching the table): records the spot and the joint")
+    print("angles the game will replay, then lifts and records hover. Save at d2 on a")
+    print("staging stack for the top block. Save at h records hover only.")
 
     key = None       # which spot we're working on
     x = y = z = None  # where the arm was last sent
@@ -206,14 +209,63 @@ def test_go_to():
                 else:
                     table_z = old_z  # at hover: keep the old height
                 set_spot(key, x, y, table_z)
+
+                # The game replays joint angles, so record those too.
+                name = robot.spot_name(*key)
+                spot = robot.ANGLES.setdefault(name, {"hover": None, "down": []})
+                if level in ("d", "d2"):
+                    layer = 0 if level == "d" else 1
+                    down = robot.read_angles(fallback=False)
+                    if down is None:
+                        print("  Couldn't read joint angles; nothing saved. Try again.")
+                        continue
+                    while len(spot["down"]) <= layer:
+                        spot["down"].append(None)
+                    spot["down"][layer] = down
+                    # Straight up from here, and record that as the hover pose.
+                    robot.move_to(x, y, HOVER_Z, mode=1)
+                    z = HOVER_Z
+                    level = "h"
+                hover = robot.read_angles(fallback=False)
+                if hover is None:
+                    print("  Couldn't read hover angles; press h then save again to add them.")
+                else:
+                    spot["hover"] = hover
+
                 robot.save_calibration()
                 print(f"  Saved: was ({old_x:g}, {old_y:g}, z={old_z:g}), "
                       f"now ({x:g}, {y:g}, z={table_z:g}) -> calibration.json")
+                layers = [i for i, a in enumerate(spot["down"]) if a]
+                print(f"  Angles saved for {name}: hover {'yes' if spot['hover'] else 'no'}, "
+                      f"down layers {layers or 'none'}. Lifted to hover.")
+                continue
+
+            if command in ("check", "check2"):
+                if key is None:
+                    print("Choose a square or staging stack first.")
+                    continue
+                layer = 0 if command == "check" else 1
+                name = robot.spot_name(*key)
+                angles = robot.saved_angles(name, layer)
+                if angles is None:
+                    print(f"  No saved angles for {name} layer {layer}. Get it right, then save at "
+                          f"{'d' if layer == 0 else 'd2'}.")
+                    continue
+                if level in ("d", "d2"):
+                    robot.move_to(x, y, HOVER_Z, mode=1)
+                hover, down = angles
+                robot.move_angles(hover)
+                robot.move_angles(down)
+                x, y, table_z = get_spot(key)
+                z = table_z + layer * BLOCK_HEIGHT
+                level = "d" if layer == 0 else "d2"
+                print("  Replayed saved angles, exactly as the game will. Cup on centre, just touching?")
+                show_position(x, y, z)
                 continue
 
             found = find_spot(command)
             if found is None:
-                print("Unknown command. Try 4, x1, o0, d, h, x+2, w, save or q.")
+                print("Unknown command. Try 4, x1, o0, d, h, x+2, w, save, check or q.")
                 continue
 
             if level in ("d", "d2"):  # always lift before moving sideways
@@ -265,8 +317,8 @@ def test_pick_and_place():
         return
 
     try:
-        robot.pick_from(*stacks[stack], layer, STAGING_Z[player][stack])
-        robot.drop_at(*SQUARES[square], SQUARE_Z[square])
+        robot.pick_from_spot(robot.spot_name("staging", player, stack), layer)
+        robot.drop_at_spot(robot.spot_name("square", square))
     except RuntimeError as error:
         print(error)
         robot.release()  # don't keep holding a block after a failed move
