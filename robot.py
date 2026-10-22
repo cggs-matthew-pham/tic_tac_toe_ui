@@ -63,32 +63,43 @@ MIN_Z = DOWN_Z - 15
 SAG_START_X = 160
 SAG_PER_MM = 0.0
 
-# ---- Board squares ----
-# Numbered like the UI:
-#   0 | 1 | 2
-#   3 | 4 | 5
-#   6 | 7 | 8
-# (x, y) in mm. x is distance out from the robot, y is left/right.
-# Starting points for nudging only; replaced by calibrated values on load.
+# ---- Board layout ----
+# Matches hardware/board.scad (same numbers there). Seen from the player's
+# side, with the robot at the far edge:
+#
+#            ROBOT
+#    X0 |  0   1   2  | O0
+#    X1 |  3   4   5  | O1
+#    X2 |  6   7   8  | O2
+#    X3 |             | O3
+#    X4 |             | O4
+#
+# x is distance out from the robot, y is left/right (+y = the robot's left,
+# which is the player's right). These positions are only starting points
+# for nudging; calibrated values replace them.
+GRID_NEAR_X = 140     # mm from robot to the centre of the row with 0 1 2
+PITCH = 25            # board.scad: pitch
+STAGING_PITCH = 25    # board.scad: staging_pitch
+STAGING_GAP = 8       # board.scad: staging_gap
+STAGING_COUNT = 5     # board.scad: staging_count
+
 SQUARES = [
-    (240, 40), (200, 40), (160, 40),
-    (240, 0),  (200, 0),  (160, 0),
-    (240, -40), (200, -40), (160, -40),
+    (GRID_NEAR_X + (i // 3) * PITCH, (i % 3 - 1) * PITCH)
+    for i in range(9)
 ]
 
-# ---- Staging spots ----
-# One (x, y) per staging spot, named x0..x4 and o0..o4. Used in order.
+_STAGING_Y = 1.5 * PITCH + STAGING_GAP + STAGING_PITCH / 2   # centre of grid to staging column
 STAGING = {
-    1: [(240, 70), (220, 70), (200, 70), (180, 70), (160, 70)],       # X
-    2: [(240, -70), (220, -70), (200, -70), (180, -70), (160, -70)],  # O
+    1: [(GRID_NEAR_X + i * STAGING_PITCH, -_STAGING_Y) for i in range(STAGING_COUNT)],  # X, player's left
+    2: [(GRID_NEAR_X + i * STAGING_PITCH, _STAGING_Y) for i in range(STAGING_COUNT)],   # O, player's right
 }
 
 # Blocks stacked on each staging spot at the start of a game. 1 = no
 # stacking. To stack later, raise a number (e.g. [2, 2, 1]) and save the
 # top block's position at d2 in the test script (pose "down1").
 STACK_SIZES = {
-    1: [1, 1, 1, 1, 1],
-    2: [1, 1, 1, 1, 1],
+    1: [1] * STAGING_COUNT,
+    2: [1] * STAGING_COUNT,
 }
 
 # Table height at each spot, for nudging. Replaced by calibrated values.
