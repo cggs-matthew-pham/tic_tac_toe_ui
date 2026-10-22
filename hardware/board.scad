@@ -30,12 +30,12 @@ PART = "both";          // "board", "blocks" or "both" (preview only)
 /* [Block] */
 block      = 15;        // block width (mm). Measure real blocks if not printing them.
 block_h    = 15;        // block height
-block_cham = 1;         // chamfer on the block's bottom edges, so it slides in
+block_cham = 1.5;       // chamfer on the block's bottom edges, so it slides in
 
 /* [Pockets] */
 clearance  = 0.8;       // floor = block + this. 0.6-1.0 for FDM; less wedges, more rattles.
-flare      = 2.5;       // extra opening width per side at the top = capture range
-depth      = 4;         // pocket depth; keep well under block_h so the cup never touches
+flare      = 3.5;       // extra opening width per side at the top = capture range
+depth      = 5;         // pocket depth; keep well under block_h so the cup never touches
 
 /* [Layout] */
 pitch          = 25;    // centre-to-centre spacing of grid pockets
@@ -43,7 +43,7 @@ staging_pitch  = 25;    // spacing of staging pockets along each column
 staging_gap    = 8;     // extra space between grid and staging columns
 staging_count  = 5;     // pockets per player
 margin         = 6;     // border around everything
-thickness      = 6;     // board thickness (floor under pockets = thickness - depth)
+thickness      = 7;     // board thickness (floor under pockets = thickness - depth)
 
 /* [Labels] */
 labels       = true;
