@@ -10,12 +10,18 @@ Choose the end effector with END_EFFECTOR below. Only grab() and release()
 care which one is fitted; every movement is the same.
 
 CALIBRATE BEFORE USE: STAGING positions and DOWN_Z below are placeholders.
-Check them with test_mycobot_squares.py.
+Check them with test_mycobot_squares.py, which can nudge the arm into the
+right spot and save it to calibration.json. If that file exists it
+overrides the defaults below, per square and per staging stack.
 """
 
+import json
+import os
 import time
 
 from pymycobot import MyCobot280
+
+CALIBRATION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.json")
 
 PORT = "/dev/ttyAMA0"
 BAUD = "1000000"
@@ -30,12 +36,15 @@ DOWN_Z = 175   # height where the cup just touches a block sitting on the table
 BLOCK_HEIGHT = 5  # mm; a stacked block is grabbed this much higher
 
 # Safety: move_to refuses anything below this, so a wrong number can't
-# drive the cup into the board. Keep it a few mm under DOWN_Z.
-MIN_Z = DOWN_Z - 5
+# drive the cup into the board. Low enough to leave room for nudging
+# while calibrating; raise it once DOWN_Z is known.
+MIN_Z = DOWN_Z - 15
 
 # The arm droops slightly at full reach, so far positions end up lower than
 # asked. Beyond SAG_START_X, raise z by SAG_PER_MM for every mm further out.
 # Example: if x=240 sits 8 mm lower than x=160, use 8 / (240 - 160) = 0.1
+# Not needed if you calibrate each square's z with test_mycobot_squares.py;
+# leave it at 0 then, or the saved z values will be off by the correction.
 SAG_START_X = 160
 SAG_PER_MM = 0.0  # start at 0, measure, then set
 
@@ -66,7 +75,53 @@ STACK_SIZES = {
     2: [2, 2],
 }
 
+# Table height at each spot. One number per square and per staging stack,
+# starting as DOWN_Z everywhere. Measured values from calibration.json
+# replace these, which handles sag and an unlevel board without modelling it.
+SQUARE_Z = [DOWN_Z] * 9
+STAGING_Z = {player: [DOWN_Z] * len(stacks) for player, stacks in STAGING.items()}
+
 TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
+
+
+# ---- Calibration file ----
+# {"squares": {"4": [x, y, z]}, "staging": {"x1": [x, y, z], "o0": [x, y, z]}}
+# Only spots present in the file are overridden.
+
+PLAYER_LETTER = {1: "x", 2: "o"}
+
+
+def load_calibration():
+    if not os.path.exists(CALIBRATION_FILE):
+        return
+    with open(CALIBRATION_FILE) as f:
+        data = json.load(f)
+
+    for key, (x, y, z) in data.get("squares", {}).items():
+        SQUARES[int(key)] = (x, y)
+        SQUARE_Z[int(key)] = z
+
+    for key, (x, y, z) in data.get("staging", {}).items():
+        player = {"x": 1, "o": 2}[key[0]]
+        stack = int(key[1:])
+        STAGING[player][stack] = (x, y)
+        STAGING_Z[player][stack] = z
+
+
+def save_calibration():
+    data = {
+        "squares": {str(i): [*SQUARES[i], SQUARE_Z[i]] for i in range(9)},
+        "staging": {
+            f"{PLAYER_LETTER[player]}{i}": [*STAGING[player][i], STAGING_Z[player][i]]
+            for player in STAGING
+            for i in range(len(STAGING[player]))
+        },
+    }
+    with open(CALIBRATION_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+load_calibration()
 
 
 # ---- Connection (runs once, when this file is imported) ----
@@ -138,6 +193,16 @@ def read_angles():
     return last_angles  # fall back to the last good reading
 
 
+def read_coords():
+    """Where the arm says it is: [x, y, z, rx, ry, rz], or None if no answer."""
+    for _ in range(3):
+        coords = mc.get_coords()
+        if isinstance(coords, list) and len(coords) == 6:
+            return coords
+        time.sleep(0.2)
+    return None
+
+
 def can_reach(target):
     angles = read_angles()
     if angles is None:
@@ -183,17 +248,17 @@ def home():
     last_angles = list(START_ANGLES)  # a known-good reading to start from
 
 
-def pick_from(x, y, layer=0):
-    grab_z = DOWN_Z + layer * BLOCK_HEIGHT  # higher for a stacked block
+def pick_from(x, y, layer=0, table_z=DOWN_Z):
+    grab_z = table_z + layer * BLOCK_HEIGHT  # higher for a stacked block
     move_to(x, y, HOVER_Z)
     move_to(x, y, grab_z, mode=1)  # mode 1: straight line down
     grab()
     move_to(x, y, HOVER_Z, mode=1)
 
 
-def drop_at(x, y):
+def drop_at(x, y, table_z=DOWN_Z):
     move_to(x, y, HOVER_Z)
-    move_to(x, y, DOWN_Z, mode=1)
+    move_to(x, y, table_z, mode=1)
     release()
     move_to(x, y, HOVER_Z, mode=1)
 
@@ -206,8 +271,8 @@ def place_piece(square, player):
     for stack, count in enumerate(stacks):
         if count > 0:
             layer = count - 1  # top block of this stack (0 = on the table)
-            pick_from(*STAGING[player][stack], layer)
-            drop_at(*SQUARES[square])
+            pick_from(*STAGING[player][stack], layer, STAGING_Z[player][stack])
+            drop_at(*SQUARES[square], SQUARE_Z[square])
             stacks[stack] -= 1
             return
 
