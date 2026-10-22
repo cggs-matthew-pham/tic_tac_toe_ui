@@ -14,7 +14,13 @@ def square_clicked(square):
         ui.set_status("That square is already occupied.")
         return
 
-    robot.place_piece(square, game.current_player)
+    try:
+        robot.place_piece(square, game.current_player)
+    except RuntimeError as error:
+        game.board[square] = game.EMPTY  # undo: the piece never got placed
+        ui.set_status(str(error))
+        print(error)
+        return
 
     ui.update_board(game.board)
 

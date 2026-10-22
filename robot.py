@@ -9,25 +9,27 @@ Plain functions, no classes. Use it from other files with:
 Choose the end effector with END_EFFECTOR below. Only grab() and release()
 care which one is fitted; every movement is the same.
 
-CALIBRATE BEFORE USE: STAGING positions and DOWN_Z below are placeholders.
-Check them with test_mycobot_squares.py, which can nudge the arm into the
-right spot and save it to calibration.json. If that file exists it
-overrides the defaults below, per square and per staging stack.
+HOW POSITIONS WORK
+The game moves by replaying saved joint angles, read from calibration.csv.
+Make that file with test_mycobot_squares.py: nudge the arm until the cup is
+right over a spot, then save. Angles are used rather than coordinates
+because the arm's own coordinate-to-angle maths is approximate and depends
+on where it starts, while replayed angles land in the same place every time.
 
-Saved spots also store the arm's joint angles (hover and down). The game
-replays those angles instead of sending coordinates: the arm's own
-coordinate-to-angle maths is approximate and depends on its starting pose,
-so angles land in the same place every time. Spots without saved angles
-fall back to coordinates and print a warning.
+The coordinates below (SQUARES, STAGING, DOWN_Z) are only starting points
+for nudging. The game refuses to use a spot that has no saved angles.
 """
 
-import json
+import csv
 import os
 import time
+from datetime import datetime
 
 from pymycobot import MyCobot280
 
-CALIBRATION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.json")
+HERE = os.path.dirname(os.path.abspath(__file__))
+CALIBRATION_FILE = os.path.join(HERE, "calibration.csv")
+CHECK_LOG_FILE = os.path.join(HERE, "check_log.csv")
 
 PORT = "/dev/ttyAMA0"
 BAUD = "1000000"
@@ -42,22 +44,19 @@ PUMP_ENABLED = False
 
 START_ANGLES = [25, 20, -120, 10, 0, -65]
 
-HOVER_Z = 190  # safe travel height; clears a 2-high stack of thin blocks
-DOWN_Z = 175   # height where the cup just touches a block sitting on the table
-BLOCK_HEIGHT = 5  # mm; a stacked block is grabbed this much higher
+HOVER_Z = 190  # safe travel height above the table
+DOWN_Z = 175   # starting guess for where the cup touches a block on the table
+BLOCK_HEIGHT = 5  # mm; a stacked block sits this much higher
 
 # Safety: move_to refuses anything below this, so a wrong number can't
 # drive the cup into the board. Low enough to leave room for nudging
-# while calibrating; raise it once DOWN_Z is known.
+# while calibrating; raise it once you know where the table is.
 MIN_Z = DOWN_Z - 15
 
-# The arm droops slightly at full reach, so far positions end up lower than
-# asked. Beyond SAG_START_X, raise z by SAG_PER_MM for every mm further out.
-# Example: if x=240 sits 8 mm lower than x=160, use 8 / (240 - 160) = 0.1
-# Not needed if you calibrate each square's z with test_mycobot_squares.py;
-# leave it at 0 then, or the saved z values will be off by the correction.
+# Droop correction for coordinate moves only (nudging). Leave at 0: the
+# game replays measured angles, which already include any droop.
 SAG_START_X = 160
-SAG_PER_MM = 0.0  # start at 0, measure, then set
+SAG_PER_MM = 0.0
 
 # ---- Board squares ----
 # Numbered like the UI:
@@ -65,7 +64,7 @@ SAG_PER_MM = 0.0  # start at 0, measure, then set
 #   3 | 4 | 5
 #   6 | 7 | 8
 # (x, y) in mm. x is distance out from the robot, y is left/right.
-# Height is set by HOVER_Z or DOWN_Z.
+# Starting points for nudging only; replaced by calibrated values on load.
 SQUARES = [
     (240, 40), (200, 40), (160, 40),
     (240, 0),  (200, 0),  (160, 0),
@@ -73,79 +72,167 @@ SQUARES = [
 ]
 
 # ---- Staging spots ----
-# One (x, y) per stack of blocks, nearest-to-use first.
+# One (x, y) per staging spot, named x0..x4 and o0..o4. Used in order.
 STAGING = {
-    1: [(240, 70), (210, 70), (180, 70)],   # X stacks
-    2: [(240, -70), (210, -70)],            # O stacks
+    1: [(240, 70), (220, 70), (200, 70), (180, 70), (160, 70)],       # X
+    2: [(240, -70), (220, -70), (200, -70), (180, -70), (160, -70)],  # O
 }
 
-# How many blocks start in each stack above. X: 2 + 2 + 1 = 5, O: 2 + 2 = 4.
-# This is the only place stacking is described.
+# Blocks stacked on each staging spot at the start of a game. 1 = no
+# stacking. To stack later, raise a number (e.g. [2, 2, 1]) and save the
+# top block's position at d2 in the test script (pose "down1").
 STACK_SIZES = {
-    1: [2, 2, 1],
-    2: [2, 2],
+    1: [1, 1, 1, 1, 1],
+    2: [1, 1, 1, 1, 1],
 }
 
-# Table height at each spot. One number per square and per staging stack,
-# starting as DOWN_Z everywhere. Measured values from calibration.json
-# replace these, which handles sag and an unlevel board without modelling it.
+# Table height at each spot, for nudging. Replaced by calibrated values.
 SQUARE_Z = [DOWN_Z] * 9
-STAGING_Z = {player: [DOWN_Z] * len(stacks) for player, stacks in STAGING.items()}
+STAGING_Z = {player: [DOWN_Z] * len(spots) for player, spots in STAGING.items()}
 
 TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
 
-
-# ---- Calibration file ----
-# {"squares": {"4": [x, y, z]}, "staging": {"x1": [x, y, z], "o0": [x, y, z]}}
-# Only spots present in the file are overridden.
-
 PLAYER_LETTER = {1: "x", 2: "o"}
-
-# Joint angles per spot, keyed by the same names the test script uses:
-# "0".."8" for squares, "x0", "o1" etc. for staging stacks.
-#   {"4": {"hover": [6 angles], "down": [[6 angles] for layer 0, layer 1...]}}
-ANGLES = {}
 
 
 def spot_name(kind, *index):
     """("square", 4) -> "4", ("staging", 1, 0) -> "x0"."""
     if kind == "square":
         return str(index[0])
-    player, stack = index
-    return f"{PLAYER_LETTER[player]}{stack}"
+    player, spot = index
+    return f"{PLAYER_LETTER[player]}{spot}"
+
+
+def all_spot_names():
+    names = [str(i) for i in range(len(SQUARES))]
+    for player, spots in STAGING.items():
+        names += [f"{PLAYER_LETTER[player]}{i}" for i in range(len(spots))]
+    return names
+
+
+# ---- Calibration file (calibration.csv) ----
+# One row per spot and pose. Poses: "hover", "down0" (block on the table),
+# "down1" (top of a 2-high stack, only if stacking).
+# The game reads only j1..j6. Sent and reported coordinates are kept for
+# cross-referencing and analysis.
+
+ANGLE_COLUMNS = ["j1", "j2", "j3", "j4", "j5", "j6"]
+CALIBRATION_COLUMNS = (
+    ["spot", "pose"] + ANGLE_COLUMNS
+    + ["sent_x", "sent_y", "sent_z"]
+    + ["rep_x", "rep_y", "rep_z", "rep_rx", "rep_ry", "rep_rz"]
+    + ["saved_at"]
+)
+CHECK_COLUMNS = (
+    ["checked_at", "spot", "pose"]
+    + ["rep_x", "rep_y", "rep_z", "rep_rx", "rep_ry", "rep_rz"]
+    + ["err_x", "err_y", "err_z"]
+    + ANGLE_COLUMNS
+)
+
+calibration = {}  # (spot, pose) -> row dict
+
+
+def _sort_key(item):
+    spot, pose = item
+    return (not spot.isdigit(), spot, pose != "hover", pose)
+
+
+def _spot_index(name):
+    """"4" -> ("square", 4); "x0" -> ("staging", 1, 0)."""
+    if name.isdigit():
+        return ("square", int(name))
+    return ("staging", {"x": 1, "o": 2}[name[0]], int(name[1:]))
 
 
 def load_calibration():
+    calibration.clear()
     if not os.path.exists(CALIBRATION_FILE):
         return
-    with open(CALIBRATION_FILE) as f:
-        data = json.load(f)
+    with open(CALIBRATION_FILE, newline="") as f:
+        for row in csv.DictReader(f):
+            calibration[(row["spot"], row["pose"])] = row
 
-    for key, (x, y, z) in data.get("squares", {}).items():
-        SQUARES[int(key)] = (x, y)
-        SQUARE_Z[int(key)] = z
+    # Start future nudging from the calibrated positions.
+    for (spot, pose), row in calibration.items():
+        if pose != "down0" or not row.get("sent_x"):
+            continue
+        x, y, z = float(row["sent_x"]), float(row["sent_y"]), float(row["sent_z"])
+        kind, *index = _spot_index(spot)
+        try:
+            if kind == "square":
+                SQUARES[index[0]] = (x, y)
+                SQUARE_Z[index[0]] = z
+            else:
+                player, i = index
+                STAGING[player][i] = (x, y)
+                STAGING_Z[player][i] = z
+        except IndexError:
+            pass  # spot in the file that this layout no longer has
 
-    for key, (x, y, z) in data.get("staging", {}).items():
-        player = {"x": 1, "o": 2}[key[0]]
-        stack = int(key[1:])
-        STAGING[player][stack] = (x, y)
-        STAGING_Z[player][stack] = z
 
-    ANGLES.update(data.get("angles", {}))
+def _fmt(values):
+    return ["" if v is None else round(v, 2) for v in values]
 
 
-def save_calibration():
-    data = {
-        "squares": {str(i): [*SQUARES[i], SQUARE_Z[i]] for i in range(9)},
-        "staging": {
-            f"{PLAYER_LETTER[player]}{i}": [*STAGING[player][i], STAGING_Z[player][i]]
-            for player in STAGING
-            for i in range(len(STAGING[player]))
-        },
-        "angles": ANGLES,
-    }
-    with open(CALIBRATION_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+def save_pose(spot, pose, angles, sent, reported):
+    """Record one pose and rewrite calibration.csv.
+
+    angles: 6 joint angles. sent: (x, y, z) commanded. reported: 6 coords
+    from the arm, or None if it didn't answer.
+    """
+    reported = reported or [None] * 6
+    row = dict(zip(CALIBRATION_COLUMNS, [spot, pose] + _fmt(angles) + _fmt(sent)
+                   + _fmt(reported) + [datetime.now().isoformat(timespec="seconds")]))
+    calibration[(spot, pose)] = row
+    with open(CALIBRATION_FILE, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CALIBRATION_COLUMNS)
+        writer.writeheader()
+        for key in sorted(calibration, key=_sort_key):
+            writer.writerow(calibration[key])
+
+
+def log_check(spot, pose, reported, angles):
+    """Append a replay result to check_log.csv.
+
+    err_x/y/z = where the arm reports it is now minus where it reported at
+    save time. Near 0 every time = repeatable.
+    """
+    saved = calibration.get((spot, pose), {})
+    reported = reported or [None] * 6
+    errors = []
+    for axis, now in zip(("rep_x", "rep_y", "rep_z"), reported[:3]):
+        before = saved.get(axis)
+        errors.append(now - float(before) if now is not None and before else None)
+    new_file = not os.path.exists(CHECK_LOG_FILE)
+    with open(CHECK_LOG_FILE, "a", newline="") as f:
+        writer = csv.writer(f)
+        if new_file:
+            writer.writerow(CHECK_COLUMNS)
+        writer.writerow([datetime.now().isoformat(timespec="seconds"), spot, pose]
+                        + _fmt(reported) + _fmt(errors) + _fmt(angles or [None] * 6))
+    return errors
+
+
+def saved_angles(spot, layer=0):
+    """(hover, down) joint angles for a spot, or None if not both saved."""
+    hover = calibration.get((spot, "hover"))
+    down = calibration.get((spot, f"down{layer}"))
+    if not hover or not down:
+        return None
+    return ([float(hover[j]) for j in ANGLE_COLUMNS],
+            [float(down[j]) for j in ANGLE_COLUMNS])
+
+
+def missing_spots():
+    """Spots the current layout needs that have no saved angles yet."""
+    missing = [s for s in map(str, range(len(SQUARES))) if not saved_angles(s)]
+    for player, sizes in STACK_SIZES.items():
+        for i, size in enumerate(sizes):
+            name = spot_name("staging", player, i)
+            missing += [f"{name}/down{layer}" if layer else name
+                        for layer in range(size) if not saved_angles(name, layer)]
+    return missing
 
 
 load_calibration()
@@ -299,72 +386,36 @@ def move_angles(angles):
     last_angles = list(angles)
 
 
-def pick_from(x, y, layer=0, table_z=DOWN_Z):
-    grab_z = table_z + layer * BLOCK_HEIGHT  # higher for a stacked block
-    move_to(x, y, HOVER_Z)
-    move_to(x, y, grab_z, mode=1)  # mode 1: straight line down
-    grab()
-    move_to(x, y, HOVER_Z, mode=1)
+def _replay(spot, layer, action):
+    angles = saved_angles(spot, layer)
+    if angles is None:
+        pose = f"down{layer}"
+        raise RuntimeError(
+            f"No saved angles for {spot} ({pose}). Calibrate it first: "
+            f"test_mycobot_squares.py, option 1, go to {spot}, d, nudge, save."
+        )
+    hover, down = angles
+    move_angles(hover)
+    move_angles(down)
+    action()
+    move_angles(hover)
 
 
-def drop_at(x, y, table_z=DOWN_Z):
-    move_to(x, y, HOVER_Z)
-    move_to(x, y, table_z, mode=1)
-    release()
-    move_to(x, y, HOVER_Z, mode=1)
+def pick_from_spot(spot, layer=0):
+    _replay(spot, layer, grab)
 
 
-def saved_angles(name, layer=0):
-    """(hover, down) angles for a spot and layer, or None if not saved."""
-    spot = ANGLES.get(name, {})
-    downs = spot.get("down", [])
-    if spot.get("hover") and layer < len(downs) and downs[layer]:
-        return spot["hover"], downs[layer]
-    return None
-
-
-def spot_coords(name):
-    """(x, y, table_z) for "4" or "x0"."""
-    if name.isdigit():
-        i = int(name)
-        return (*SQUARES[i], SQUARE_Z[i])
-    player = {"x": 1, "o": 2}[name[0]]
-    i = int(name[1:])
-    return (*STAGING[player][i], STAGING_Z[player][i])
-
-
-def pick_from_spot(name, layer=0):
-    angles = saved_angles(name, layer)
-    if angles:
-        hover, down = angles
-        move_angles(hover)
-        move_angles(down)
-        grab()
-        move_angles(hover)
-    else:
-        print(f"Warning: no saved angles for {name} layer {layer}; using coordinates.")
-        x, y, table_z = spot_coords(name)
-        pick_from(x, y, layer, table_z)
-
-
-def drop_at_spot(name):
-    angles = saved_angles(name)
-    if angles:
-        hover, down = angles
-        move_angles(hover)
-        move_angles(down)
-        release()
-        move_angles(hover)
-    else:
-        print(f"Warning: no saved angles for square {name}; using coordinates.")
-        x, y, table_z = spot_coords(name)
-        drop_at(x, y, table_z)
+def drop_at_spot(spot):
+    _replay(spot, 0, release)
 
 
 # ---- Game-level actions ----
 
 def place_piece(square, player):
     stacks = blocks_left[player]
+    missing = missing_spots()
+    if missing:
+        raise RuntimeError("Not calibrated yet: " + ", ".join(missing))
 
     for stack, count in enumerate(stacks):
         if count > 0:
@@ -374,7 +425,7 @@ def place_piece(square, player):
             stacks[stack] -= 1
             return
 
-    raise RuntimeError(f"No staged blocks left for player {player}")
+    raise RuntimeError(f"No staged blocks left for {PLAYER_LETTER[player].upper()}")
 
 
 def reset():

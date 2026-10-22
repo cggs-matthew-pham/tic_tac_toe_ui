@@ -107,9 +107,9 @@ def test_go_to():
     print("  w = show where the arm is, save = keep this spot, q = back to menu")
     print("  check / check2 = replay the saved angles (table / one block up),")
     print("                   exactly as the game moves - use it to test repeatability")
-    print("Save at d (cup just touching the table): records the spot and the joint")
-    print("angles the game will replay, then lifts and records hover. Save at d2 on a")
-    print("staging stack for the top block. Save at h records hover only.")
+    print("Save at d (cup just touching the table): records the joint angles the")
+    print("game will replay, then lifts straight up and records hover. Save at h")
+    print("records hover only. Save at d2 only if stacking (top block).")
 
     key = None       # which spot we're working on
     x = y = z = None  # where the arm was last sent
@@ -129,7 +129,7 @@ def test_go_to():
         try:
             if command in ("d", "d2", "h"):
                 if key is None:
-                    print("Choose a square or staging stack first.")
+                    print("Choose a square or staging spot first.")
                     continue
                 table_z = get_spot(key)[2]
                 z = {"d": table_z, "d2": table_z + BLOCK_HEIGHT, "h": HOVER_Z}[command]
@@ -141,7 +141,7 @@ def test_go_to():
             nudge = NUDGE.match(command)
             if nudge:
                 if key is None:
-                    print("Choose a square or staging stack first.")
+                    print("Choose a square or staging spot first.")
                     continue
                 axis, sign, amount = nudge.groups()
                 step = float(amount or 1)
@@ -160,7 +160,7 @@ def test_go_to():
 
             if command == "teach":
                 if key is None:
-                    print("Choose a square or staging stack first.")
+                    print("Choose a square or staging spot first.")
                     continue
                 print("  Servos releasing - HOLD THE ARM, it will drop.")
                 ask("  Enter to release: ")
@@ -192,64 +192,56 @@ def test_go_to():
 
             if command == "w":
                 if key is None:
-                    print("Choose a square or staging stack first.")
+                    print("Choose a square or staging spot first.")
                     continue
                 show_position(x, y, z)
                 continue
 
             if command == "save":
                 if key is None:
-                    print("Choose a square or staging stack first.")
+                    print("Choose a square or staging spot first.")
                     continue
-                old_x, old_y, old_z = get_spot(key)
-                if level == "d":
-                    table_z = z
-                elif level == "d2":
-                    table_z = z - BLOCK_HEIGHT
-                else:
-                    table_z = old_z  # at hover: keep the old height
-                set_spot(key, x, y, table_z)
-
-                # The game replays joint angles, so record those too.
                 name = robot.spot_name(*key)
-                spot = robot.ANGLES.setdefault(name, {"hover": None, "down": []})
+                saved = []
+
                 if level in ("d", "d2"):
                     layer = 0 if level == "d" else 1
-                    down = robot.read_angles(fallback=False)
-                    if down is None:
+                    pose = f"down{layer}"
+                    angles = robot.read_angles(fallback=False)
+                    if angles is None:
                         print("  Couldn't read joint angles; nothing saved. Try again.")
                         continue
-                    while len(spot["down"]) <= layer:
-                        spot["down"].append(None)
-                    spot["down"][layer] = down
+                    robot.save_pose(name, pose, angles, (x, y, z), robot.read_coords())
+                    saved.append(pose)
+                    if layer == 0:
+                        set_spot(key, x, y, z)  # nudging restarts from here
                     # Straight up from here, and record that as the hover pose.
                     robot.move_to(x, y, HOVER_Z, mode=1)
                     z = HOVER_Z
                     level = "h"
-                hover = robot.read_angles(fallback=False)
-                if hover is None:
+
+                angles = robot.read_angles(fallback=False)
+                if angles is None:
                     print("  Couldn't read hover angles; press h then save again to add them.")
                 else:
-                    spot["hover"] = hover
+                    robot.save_pose(name, "hover", angles, (x, y, z), robot.read_coords())
+                    saved.append("hover")
 
-                robot.save_calibration()
-                print(f"  Saved: was ({old_x:g}, {old_y:g}, z={old_z:g}), "
-                      f"now ({x:g}, {y:g}, z={table_z:g}) -> calibration.json")
-                layers = [i for i, a in enumerate(spot["down"]) if a]
-                print(f"  Angles saved for {name}: hover {'yes' if spot['hover'] else 'no'}, "
-                      f"down layers {layers or 'none'}. Lifted to hover.")
+                print(f"  Saved {name}: {', '.join(saved) or 'nothing'} -> calibration.csv")
+                if level == "h" and "down0" not in saved and not robot.saved_angles(name):
+                    print("  (Still needs the table position: d, nudge, save.)")
                 continue
 
             if command in ("check", "check2"):
                 if key is None:
-                    print("Choose a square or staging stack first.")
+                    print("Choose a square or staging spot first.")
                     continue
                 layer = 0 if command == "check" else 1
                 name = robot.spot_name(*key)
                 angles = robot.saved_angles(name, layer)
                 if angles is None:
-                    print(f"  No saved angles for {name} layer {layer}. Get it right, then save at "
-                          f"{'d' if layer == 0 else 'd2'}.")
+                    print(f"  {name} needs hover and down{layer} saved first "
+                          f"({'d' if layer == 0 else 'd2'}, nudge, save).")
                     continue
                 if level in ("d", "d2"):
                     robot.move_to(x, y, HOVER_Z, mode=1)
@@ -260,7 +252,14 @@ def test_go_to():
                 z = table_z + layer * BLOCK_HEIGHT
                 level = "d" if layer == 0 else "d2"
                 print("  Replayed saved angles, exactly as the game will. Cup on centre, just touching?")
-                show_position(x, y, z)
+                reported = robot.read_coords()
+                now_angles = robot.read_angles(fallback=False)
+                errors = robot.log_check(name, f"down{layer}", reported, now_angles)
+                if all(e is not None for e in errors):
+                    print("  Reported vs at save: dx={:+.1f}  dy={:+.1f}  dz={:+.1f} mm "
+                          "(logged to check_log.csv)".format(*errors))
+                else:
+                    print("  (Couldn't compare with save; logged to check_log.csv)")
                 continue
 
             found = find_spot(command)
@@ -304,20 +303,23 @@ def test_pick_and_place():
         print("Type x or o.")
         return
 
-    stacks = STAGING[player]
+    spots = STAGING[player]
     try:
-        stack = int(ask(f"Which staging stack? (0-{len(stacks) - 1}): "))
-        layer = int(ask("Which block? (1 = bottom, 2 = top of a stack): ")) - 1
+        spot = int(ask(f"Which staging spot? (0-{len(spots) - 1}): "))
+        size = robot.STACK_SIZES[player][spot]
+        layer = 0
+        if size > 1:
+            layer = int(ask(f"Which block? (1 = bottom ... {size} = top): ")) - 1
         square = int(ask(f"Which square to place it on? (0-{len(SQUARES) - 1}): "))
-        stacks[stack], SQUARES[square]  # check both numbers exist
-        if layer not in (0, 1):
+        SQUARES[square]  # check it exists
+        if not 0 <= layer < size:
             raise ValueError
     except (ValueError, IndexError):
-        print("That stack, block or square doesn't exist.")
+        print("That spot, block or square doesn't exist.")
         return
 
     try:
-        robot.pick_from_spot(robot.spot_name("staging", player, stack), layer)
+        robot.pick_from_spot(robot.spot_name("staging", player, spot), layer)
         robot.drop_at_spot(robot.spot_name("square", square))
     except RuntimeError as error:
         print(error)
@@ -339,6 +341,11 @@ def main():
 
     while True:
         print()
+        missing = robot.missing_spots()
+        if missing:
+            print(f"Calibration: {len(missing)} spot(s) still to save: {', '.join(missing)}")
+        else:
+            print("Calibration: all spots saved. Ready to play.")
         for key, (name, _) in tests.items():
             print(f"{key}. {name}")
         if robot.END_EFFECTOR == "suction":
