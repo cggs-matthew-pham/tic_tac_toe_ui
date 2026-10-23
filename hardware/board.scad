@@ -10,14 +10,14 @@
 // Layout, seen from the player's side with the robot at the far edge:
 //
 //            ROBOT
-//    X0 |  0   1   2  | O0
-//    X1 |  3   4   5  | O1
-//    X2 |  6   7   8  | O2
-//    X3 |             | O3
+//    X1 |  1   2   3  | O1
+//    X2 |  4   5   6  | O2
+//    X3 |  7   8   9  | O3
 //    X4 |             | O4
+//    X5 |             | O5
 //
 // The engraved labels match the names in test_mycobot_squares.py, so
-// calibrate "4" at the pocket labelled 4, "x0" at X0, and so on.
+// calibrate "5" at the pocket labelled 5, "x1" at X1, and so on.
 //
 // robot.py uses the same layout for its starting positions. If you change
 // pitch, staging_pitch, staging_gap or staging_count here, change the
@@ -95,10 +95,10 @@ module board() {
         cube([board_w, board_len, thickness]);
 
         for (i = [0:8])
-            translate(grid_xy(i)) pocket(str(i));
+            translate(grid_xy(i)) pocket(str(i + 1));
 
         for (side = [0:1], i = [0:staging_count - 1])
-            translate(staging_xy(side, i)) pocket(str(side == 0 ? "X" : "O", i));
+            translate(staging_xy(side, i)) pocket(str(side == 0 ? "X" : "O", i + 1));
 
         // Arrow on the robot edge, so the board goes down the right way round.
         if (labels)

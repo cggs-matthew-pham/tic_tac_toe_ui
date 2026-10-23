@@ -68,11 +68,11 @@ SAG_PER_MM = 0.0
 # side, with the robot at the far edge:
 #
 #            ROBOT
-#    X0 |  0   1   2  | O0
-#    X1 |  3   4   5  | O1
-#    X2 |  6   7   8  | O2
-#    X3 |             | O3
+#    X1 |  1   2   3  | O1
+#    X2 |  4   5   6  | O2
+#    X3 |  7   8   9  | O3
 #    X4 |             | O4
+#    X5 |             | O5
 #
 # x is distance out from the robot, y is left/right (+y = the robot's left,
 # which is the player's right). These positions are only starting points
@@ -111,18 +111,22 @@ TOOL_DOWN = [180, 0, 0]  # rx, ry, rz: tool pointing straight down
 PLAYER_LETTER = {1: "x", 2: "o"}
 
 
+# Names count from 1, like the screen and the engraved board: squares
+# "1".."9", staging "x1".."x5" and "o1".."o5". Lists in the code still
+# count from 0, so square index 4 is named "5".
+
 def spot_name(kind, *index):
-    """("square", 4) -> "4", ("staging", 1, 0) -> "x0"."""
+    """("square", 4) -> "5", ("staging", 1, 0) -> "x1"."""
     if kind == "square":
-        return str(index[0])
+        return str(index[0] + 1)
     player, spot = index
-    return f"{PLAYER_LETTER[player]}{spot}"
+    return f"{PLAYER_LETTER[player]}{spot + 1}"
 
 
 def all_spot_names():
-    names = [str(i) for i in range(len(SQUARES))]
+    names = [spot_name("square", i) for i in range(len(SQUARES))]
     for player, spots in STAGING.items():
-        names += [f"{PLAYER_LETTER[player]}{i}" for i in range(len(spots))]
+        names += [spot_name("staging", player, i) for i in range(len(spots))]
     return names
 
 
@@ -155,10 +159,10 @@ def _sort_key(item):
 
 
 def _spot_index(name):
-    """"4" -> ("square", 4); "x0" -> ("staging", 1, 0)."""
+    """"5" -> ("square", 4); "x1" -> ("staging", 1, 0)."""
     if name.isdigit():
-        return ("square", int(name))
-    return ("staging", {"x": 1, "o": 2}[name[0]], int(name[1:]))
+        return ("square", int(name) - 1)
+    return ("staging", {"x": 1, "o": 2}[name[0]], int(name[1:]) - 1)
 
 
 def load_calibration():
@@ -168,6 +172,8 @@ def load_calibration():
     with open(CALIBRATION_FILE, newline="") as f:
         for row in csv.DictReader(f):
             calibration[(row["spot"], row["pose"])] = row
+
+    _renumber_if_old()
 
     # Start future nudging from the calibrated positions.
     for (spot, pose), row in calibration.items():
@@ -187,6 +193,39 @@ def load_calibration():
             pass  # spot in the file that this layout no longer has
 
 
+def _renumber_if_old():
+    """Files saved before names counted from 1 used 0-8 and x0-x4.
+
+    The new names never include "0", "x0" or "o0", so any of those means an
+    old file: shift every name up by one, once, keeping a backup.
+    """
+    if not any(spot in ("0", "x0", "o0") for spot, _ in calibration):
+        return
+    backup = CALIBRATION_FILE.replace(".csv", "_old_numbering.csv")
+    os.replace(CALIBRATION_FILE, backup)
+
+    def shifted(name):
+        if name.isdigit():
+            return str(int(name) + 1)
+        return f"{name[0]}{int(name[1:]) + 1}"
+
+    old = list(calibration.values())
+    calibration.clear()
+    for row in old:
+        row = dict(row, spot=shifted(row["spot"]))
+        calibration[(row["spot"], row["pose"])] = row
+    _write_calibration()
+    print(f"calibration.csv renumbered to count from 1 (old copy: {os.path.basename(backup)})")
+
+
+def _write_calibration():
+    with open(CALIBRATION_FILE, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CALIBRATION_COLUMNS)
+        writer.writeheader()
+        for key in sorted(calibration, key=_sort_key):
+            writer.writerow(calibration[key])
+
+
 def _fmt(values):
     return ["" if v is None else round(v, 2) for v in values]
 
@@ -201,11 +240,7 @@ def save_pose(spot, pose, angles, sent, reported):
     row = dict(zip(CALIBRATION_COLUMNS, [spot, pose] + _fmt(angles) + _fmt(sent)
                    + _fmt(reported) + [datetime.now().isoformat(timespec="seconds")]))
     calibration[(spot, pose)] = row
-    with open(CALIBRATION_FILE, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CALIBRATION_COLUMNS)
-        writer.writeheader()
-        for key in sorted(calibration, key=_sort_key):
-            writer.writerow(calibration[key])
+    _write_calibration()
 
 
 def log_check(spot, pose, reported, angles):
@@ -242,7 +277,8 @@ def saved_angles(spot, layer=0):
 
 def missing_spots():
     """Spots the current layout needs that have no saved angles yet."""
-    missing = [s for s in map(str, range(len(SQUARES))) if not saved_angles(s)]
+    missing = [spot_name("square", i) for i in range(len(SQUARES))
+               if not saved_angles(spot_name("square", i))]
     for player, sizes in STACK_SIZES.items():
         for i, size in enumerate(sizes):
             name = spot_name("staging", player, i)

@@ -20,23 +20,24 @@ def ask(message):
 
 
 def find_spot(name):
-    """Turn '4' into square 4, or 'x1' / 'o0' into a staging stack.
+    """Turn '5' into square 5, or 'x1' / 'o3' into a staging spot.
 
-    Returns (label, key) where key is ("square", 4) or ("staging", 1, 0),
-    or None if the name doesn't match anything.
+    Names count from 1. Returns (label, key) where key holds the list index
+    (from 0): "5" -> ("square", 4), "x1" -> ("staging", 1, 0). None if the
+    name doesn't match anything.
     """
     if name.isdigit():
-        index = int(name)
-        if index < len(SQUARES):
-            return f"square {index}", ("square", index)
+        index = int(name) - 1
+        if 0 <= index < len(SQUARES):
+            return f"square {index + 1}", ("square", index)
         return None
 
     players = {"x": 1, "o": 2}
     if name[:1] in players and name[1:].isdigit():
         player = players[name[0]]
-        index = int(name[1:])
-        if index < len(STAGING[player]):
-            return f"{name[0].upper()} spot {index}", ("staging", player, index)
+        index = int(name[1:]) - 1
+        if 0 <= index < len(STAGING[player]):
+            return f"{name[0].upper()}{index + 1}", ("staging", player, index)
 
     return None
 
@@ -100,10 +101,10 @@ NUDGE = re.compile(r"^([xyz])([+-])(\d+(?:\.\d+)?)?$")
 
 def test_go_to():
     print("Squares:")
-    print("  0 | 1 | 2")
-    print("  3 | 4 | 5")
-    print("  6 | 7 | 8")
-    print(f"Staging: x0-x{len(STAGING[1]) - 1}, o0-o{len(STAGING[2]) - 1}")
+    print("  1 | 2 | 3")
+    print("  4 | 5 | 6")
+    print("  7 | 8 | 9")
+    print(f"Staging: x1-x{len(STAGING[1])}, o1-o{len(STAGING[2])}")
     print("Then:")
     print(f"  d = down to the block, d2 = one block up, h = hover ({HOVER_CLEARANCE} mm above)")
     print("  x+ x- y+ y- z+ z- = nudge 1 mm; add mm for more, up to 10 (x+4, z-0.5)")
@@ -275,7 +276,7 @@ def test_go_to():
 
             found = find_spot(command)
             if found is None:
-                print("Unknown command. Try 4, x1, o0, d, h, x+2, w, save, check or q.")
+                print("Unknown command. Try 5, x1, o1, d, h, x+2, w, save, check or q.")
                 continue
 
             if level in ("d", "d2"):  # always lift before moving sideways
@@ -316,14 +317,14 @@ def test_pick_and_place():
 
     spots = STAGING[player]
     try:
-        spot = int(ask(f"Which staging spot? (0-{len(spots) - 1}): "))
+        spot = int(ask(f"Which staging spot? (1-{len(spots)}): ")) - 1
         size = robot.STACK_SIZES[player][spot]
         layer = 0
         if size > 1:
             layer = int(ask(f"Which block? (1 = bottom ... {size} = top): ")) - 1
-        square = int(ask(f"Which square to place it on? (0-{len(SQUARES) - 1}): "))
+        square = int(ask(f"Which square to place it on? (1-{len(SQUARES)}): ")) - 1
         SQUARES[square]  # check it exists
-        if not 0 <= layer < size:
+        if spot < 0 or square < 0 or not 0 <= layer < size:
             raise ValueError
     except (ValueError, IndexError):
         print("That spot, block or square doesn't exist.")
